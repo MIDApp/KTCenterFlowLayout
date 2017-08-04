@@ -22,8 +22,10 @@
         self.label.translatesAutoresizingMaskIntoConstraints = NO;
         self.label.font = [UIFont systemFontOfSize:14];
         self.label.backgroundColor = [UIColor clearColor];        
-        self.label.preferredMaxLayoutWidth = 100;
+        self.label.preferredMaxLayoutWidth = 200;
         self.label.textAlignment = NSTextAlignmentCenter;
+        self.label.numberOfLines = 0;
+        
         [self addSubview:self.label];
         
         NSDictionary *views = NSDictionaryOfVariableBindings(_label);

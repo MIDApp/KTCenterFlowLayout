@@ -42,9 +42,10 @@
     [heightsNavController setViewControllers:@[heightsController]];
     
     UINavigationController *selfsizeNavController = [UINavigationController new];
-    selfsizeNavController.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Self Sizing" image:[UIImage imageNamed:@"tabbar-image"] tag:2];
+    selfsizeNavController.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Aligned Cells" image:[UIImage imageNamed:@"tabbar-image"] tag:2];
     KTSelfSizingCollectionViewController *selfsizeController = [[KTSelfSizingCollectionViewController alloc] initWithCollectionViewLayout:[KTCenterFlowLayout new]];
     selfsizeController.title = @"Self Sizing";
+    
     [selfsizeNavController setViewControllers:@[selfsizeController]];
     
     UITabBarController *tabBarController = [[UITabBarController alloc] init];
@@ -52,7 +53,7 @@
                                            basicNavController,
                                            centerNavController,
                                            heightsNavController,
-                                           //selfsizeNavController
+                                           selfsizeNavController
                                            ]];
     
     self.window.rootViewController = tabBarController;
