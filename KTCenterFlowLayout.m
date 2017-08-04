@@ -7,9 +7,25 @@
 
 #import "KTCenterFlowLayout.h"
 
+
+@interface KTRow : NSObject
+
+@property CGFloat minY, maxY;
+
+@property NSUInteger section;
+
+@property (strong, readonly, nonatomic) NSMutableArray *itemsLayoutAttributes;
+
++ (instancetype)rowWithLayoutAttributes:(UICollectionViewLayoutAttributes *)attributes;
+- (void)addLayoutAttributes:(UICollectionViewLayoutAttributes *)attributes;
+
+- (BOOL)couldContainLayoutAttributes:(UICollectionViewLayoutAttributes *)attributes;
+
+@end
+
 @interface KTCenterFlowLayout ()
 
-@property (nonatomic) NSMutableDictionary *attrCache;
+@property (nonatomic) NSMutableDictionary <NSIndexPath *, UICollectionViewLayoutAttributes *> *attrCache;
 
 @end
 
@@ -25,206 +41,180 @@
     return self;
 }
 
+
 - (void)prepareLayout
 {
     // Clear the attrCache
     self.attrCache = [NSMutableDictionary new];
+    
     [super prepareLayout];
-}
-
-- (NSArray *)layoutAttributesForElementsInRect:(CGRect)rect
-{
-    NSMutableArray *updatedAttributes = [NSMutableArray new];
-
-    NSInteger sections = [self.collectionView numberOfSections];
-    NSInteger s = 0;
-    while (s < sections)
-    {
-        NSInteger rows = [self.collectionView numberOfItemsInSection:s];
-        NSInteger r = 0;
-        while (r < rows)
-        {
-            NSIndexPath *indexPath = [NSIndexPath indexPathForRow:r inSection:s];
-
-            UICollectionViewLayoutAttributes *attrs = [self layoutAttributesForItemAtIndexPath:indexPath];
-            
-            if (attrs && CGRectIntersectsRect(attrs.frame, rect))
-            {
-                [updatedAttributes addObject:attrs];
-            }
-
-            UICollectionViewLayoutAttributes *headerAttrs =  [super layoutAttributesForSupplementaryViewOfKind:UICollectionElementKindSectionHeader
-                                                                                                   atIndexPath:indexPath];
-
-            if (headerAttrs && CGRectIntersectsRect(headerAttrs.frame, rect))
-            {
-                [updatedAttributes addObject:headerAttrs];
-            }
-
-            UICollectionViewLayoutAttributes *footerAttrs =  [super layoutAttributesForSupplementaryViewOfKind:UICollectionElementKindSectionFooter
-                                                                                                   atIndexPath:indexPath];
-
-            if (footerAttrs && CGRectIntersectsRect(footerAttrs.frame, rect))
-            {
-                [updatedAttributes addObject:footerAttrs];
-            }
-
-            r++;
-        }
-        s++;
-    }
-
-    return updatedAttributes;
 }
 
 - (UICollectionViewLayoutAttributes *)layoutAttributesForItemAtIndexPath:(NSIndexPath *)indexPath
 {
-    if (self.attrCache[indexPath])
+    return self.attrCache[indexPath] ?: [super layoutAttributesForItemAtIndexPath:indexPath];
+}
+
+- (NSArray *)layoutAttributesForElementsInRect:(CGRect)rect
+{
+    if (rect.size.width < CGRectGetWidth(self.collectionView.bounds))
+        rect.size.width = CGRectGetWidth(self.collectionView.bounds);
+    
+    NSArray *attributes = [super layoutAttributesForElementsInRect:rect];
+    
+    for (UICollectionViewLayoutAttributes *itemAttribute in attributes)
     {
-        return self.attrCache[indexPath];
+        if (itemAttribute.representedElementCategory != UICollectionElementCategoryCell)
+            continue;
+        
+        if (CGRectGetMinY(rect) > CGRectGetMinY(itemAttribute.frame) || CGRectGetMaxY(rect) < CGRectGetMaxY(itemAttribute.frame))
+        {
+            rect = CGRectUnion(rect, itemAttribute.frame);
+        }
     }
-
-    // Find the other items in the same "row"
-    NSMutableArray *rowBuddies = [NSMutableArray new];
-
+    
+    attributes = [super layoutAttributesForElementsInRect:rect];
+    
+    NSMutableArray <KTRow *> *groupByRows = [NSMutableArray new];
+    
+    NSMutableArray *modifiedAttributes = [NSMutableArray arrayWithCapacity:attributes.count];
+    for (UICollectionViewLayoutAttributes *itemAttribute in attributes)
+    {
+        if (itemAttribute.representedElementCategory != UICollectionElementCategoryCell)
+        {
+            [modifiedAttributes addObject:itemAttribute];
+            continue;
+        }
+        
+        NSIndexPath *indexPath = itemAttribute.indexPath;
+        if (self.attrCache[indexPath])
+        {
+            [modifiedAttributes addObject:self.attrCache[indexPath]];
+            continue;
+        }
+        
+        
+        UICollectionViewLayoutAttributes *newItemAttributes = [itemAttribute copy];
+        
+        // Find the other items in the same "row"
+        BOOL rowFound = NO;
+        for (KTRow *row in groupByRows)
+        {
+            if ([row couldContainLayoutAttributes:newItemAttributes])
+            {
+                [row addLayoutAttributes:newItemAttributes];
+                rowFound = YES;
+                break;
+            }
+        }
+        
+        if (!rowFound)
+            [groupByRows addObject:[KTRow rowWithLayoutAttributes:newItemAttributes]];
+        
+        
+        [modifiedAttributes addObject:newItemAttributes];
+    }
+    
+    
     // Calculate the available width to center stuff within
     // sectionInset is NOT applicable here because a) we're centering stuff
     // and b) Flow layout has arranged the cells to respect the inset. We're
     // just hijacking the X position.
     CGFloat collectionViewWidth = CGRectGetWidth(self.collectionView.bounds) -
-        self.collectionView.contentInset.left -
-        self.collectionView.contentInset.right;
-
-    // To find other items in the "row", we need a rect to check intersects against.
-    // Take the item attributes frame (from vanilla flow layout), and stretch it out
-    CGRect rowTestFrame = [super layoutAttributesForItemAtIndexPath:indexPath].frame;
-    rowTestFrame.origin.x = 0;
-    rowTestFrame.size.width = collectionViewWidth;
-
-    NSInteger totalRows = [self.collectionView numberOfItemsInSection:indexPath.section];
-
-    // From this item, work backwards to find the first item in the row
-    // Decrement the row index until a) we get to 0, b) we reach a previous row
-    NSInteger rowStartIDX = indexPath.row;
-    while (true)
-    {
-        NSInteger prevIDX = rowStartIDX - 1;
-
-        if (prevIDX < 0)
-        {
-            break;
-        }
-
-        NSIndexPath *prevPath = [NSIndexPath indexPathForRow:prevIDX inSection:indexPath.section];
-        CGRect prevFrame = [super layoutAttributesForItemAtIndexPath:prevPath].frame;
-
-        // If the item intersects the test frame, it's in the same row
-        if (CGRectIntersectsRect(prevFrame, rowTestFrame))
-            rowStartIDX = prevIDX;
-        else
-            // Found previous row, escape!
-            break;
-    }
-
-    // Now, work back UP to find the last item in the row
-    // For each item in the row, add it's attributes to rowBuddies
-    NSInteger buddyIDX = rowStartIDX;
-    while (true)
-    {
-        if (buddyIDX > (totalRows-1))
-        {
-            break;
-        }
-
-        NSIndexPath *buddyPath = [NSIndexPath indexPathForRow:buddyIDX inSection:indexPath.section];
-
-        UICollectionViewLayoutAttributes *buddyAttributes = [super layoutAttributesForItemAtIndexPath:buddyPath];
-
-        if (CGRectIntersectsRect(buddyAttributes.frame, rowTestFrame))
-        {
-            // If the item intersects the test frame, it's in the same row
-            [rowBuddies addObject:[buddyAttributes copy]];
-            buddyIDX++;
-        }
-        else
-        {
-            // Encountered next row
-            break;
-        }
-    }
-
+    self.collectionView.contentInset.left -
+    self.collectionView.contentInset.right;
+    
     id <UICollectionViewDelegateFlowLayout> flowDelegate = (id<UICollectionViewDelegateFlowLayout>) [[self collectionView] delegate];
     BOOL delegateSupportsInteritemSpacing = [flowDelegate respondsToSelector:@selector(collectionView:layout:minimumInteritemSpacingForSectionAtIndex:)];
-
+    
     // x-x-x-x ... sum up the interim space
-    CGFloat interitemSpacing = [self minimumInteritemSpacing];
-
-    // Check for minimumInteritemSpacingForSectionAtIndex support
-    if (delegateSupportsInteritemSpacing && rowBuddies.count > 0)
-    {
-        interitemSpacing = [flowDelegate collectionView:self.collectionView
-                                                 layout:self
-               minimumInteritemSpacingForSectionAtIndex:indexPath.section];
-    }
-
-    CGFloat aggregateInteritemSpacing = interitemSpacing * (rowBuddies.count -1);
-
-    // Sum the width of all elements in the row
-    CGFloat aggregateItemWidths = 0.f;
-    for (UICollectionViewLayoutAttributes *itemAttributes in rowBuddies)
-        aggregateItemWidths += CGRectGetWidth(itemAttributes.frame);
+    CGFloat interitemSpacing;
+    NSArray *rowBuddies;
     
-    
-    CGFloat maxHeigth = 0.;
-    if (self.rowVerticalAlignment != UIControlContentVerticalAlignmentCenter)
+    for (KTRow *row in groupByRows)
     {
-        for (UICollectionViewLayoutAttributes *itemAttributes in rowBuddies)
-            maxHeigth = MAX(maxHeigth, CGRectGetHeight(itemAttributes.frame));
-    }
-    
-    // Build an alignment rect
-    // |  |x-x-x-x|  |
-    CGFloat alignmentWidth = aggregateItemWidths + aggregateInteritemSpacing;
-    CGFloat alignmentXOffset = (collectionViewWidth - alignmentWidth) / 2.f;
-
-    // Adjust each item's position to be centered
-    CGRect previousFrame = CGRectZero;
-    for (UICollectionViewLayoutAttributes *itemAttributes in rowBuddies)
-    {
-        CGRect itemFrame = itemAttributes.frame;
-
-        if (CGRectEqualToRect(previousFrame, CGRectZero))
-            itemFrame.origin.x = alignmentXOffset;
-        else
-            itemFrame.origin.x = CGRectGetMaxX(previousFrame) + interitemSpacing;
-
-        switch (self.rowVerticalAlignment)
+        [row.itemsLayoutAttributes sortUsingComparator:^NSComparisonResult(UICollectionViewLayoutAttributes * _Nonnull obj1,
+                                                                           UICollectionViewLayoutAttributes *  _Nonnull obj2)
         {
-            case UIControlContentVerticalAlignmentFill:
-                itemFrame.origin.y += (itemFrame.size.height - maxHeigth)/2.0;
-                itemFrame.size.height = maxHeigth;
-                break;
-                
-            case UIControlContentVerticalAlignmentTop:
-                itemFrame.origin.y += (itemFrame.size.height - maxHeigth)/2.0;
-                break;
-                
-            case UIControlContentVerticalAlignmentBottom:
-                itemFrame.origin.y -= (itemFrame.size.height - maxHeigth)/2.0;
-                break;
-                
-            case UIControlContentVerticalAlignmentCenter:
-            default:
-                break;
+            if (obj1.center.x == obj2.center.x)
+                return NSOrderedSame;
+            
+            if (obj1.center.x < obj2.center.x)
+                return NSOrderedAscending;
+            
+            return NSOrderedDescending;
+        }];
+        rowBuddies = row.itemsLayoutAttributes;
+        
+        // Check for minimumInteritemSpacingForSectionAtIndex support
+        if (delegateSupportsInteritemSpacing && rowBuddies.count > 0)
+        {
+            interitemSpacing = [flowDelegate collectionView:self.collectionView
+                                                     layout:self
+                   minimumInteritemSpacingForSectionAtIndex:row.section];
         }
-        itemAttributes.frame = itemFrame;
-        previousFrame = itemFrame;
-
-        // Finally, add it to the cache
-        self.attrCache[itemAttributes.indexPath] = itemAttributes;
+        else
+            interitemSpacing = [self minimumInteritemSpacing];
+        
+        CGFloat aggregateInteritemSpacing = interitemSpacing * (rowBuddies.count -1);
+        
+        // Sum the width of all elements in the row
+        CGFloat aggregateItemWidths = 0.f;
+        for (UICollectionViewLayoutAttributes *itemAttributes in rowBuddies)
+            aggregateItemWidths += CGRectGetWidth(itemAttributes.frame);
+        
+        CGFloat maxHeigth = 0.;
+        if (self.rowVerticalAlignment != UIControlContentVerticalAlignmentCenter)
+        {
+            for (UICollectionViewLayoutAttributes *itemAttributes in rowBuddies)
+                maxHeigth = MAX(maxHeigth, CGRectGetHeight(itemAttributes.frame));
+        }
+        
+        // Build an alignment rect
+        // |  |x-x-x-x|  |
+        CGFloat alignmentWidth = aggregateItemWidths + aggregateInteritemSpacing;
+        CGFloat alignmentXOffset = (collectionViewWidth - alignmentWidth) / 2.f;
+        
+        // Adjust each item's position to be centered
+        CGRect previousFrame = CGRectZero;
+        for (UICollectionViewLayoutAttributes *itemAttributes in rowBuddies)
+        {
+            CGRect itemFrame = itemAttributes.frame;
+            
+            if (CGRectEqualToRect(previousFrame, CGRectZero))
+                itemFrame.origin.x = alignmentXOffset;
+            else
+                itemFrame.origin.x = CGRectGetMaxX(previousFrame) + interitemSpacing;
+            
+            switch (self.rowVerticalAlignment)
+            {
+                case UIControlContentVerticalAlignmentFill:
+                    itemFrame.origin.y += (itemFrame.size.height - maxHeigth)/2.0;
+                    itemFrame.size.height = maxHeigth;
+                    break;
+                    
+                case UIControlContentVerticalAlignmentTop:
+                    itemFrame.origin.y += (itemFrame.size.height - maxHeigth)/2.0;
+                    break;
+                    
+                case UIControlContentVerticalAlignmentBottom:
+                    itemFrame.origin.y -= (itemFrame.size.height - maxHeigth)/2.0;
+                    break;
+                    
+                case UIControlContentVerticalAlignmentCenter:
+                default:
+                    break;
+            }
+            itemAttributes.frame = itemFrame;
+            previousFrame = itemFrame;
+            
+            // Finally, add it to the cache
+            self.attrCache[itemAttributes.indexPath] = itemAttributes;
+        }
     }
-
-    return self.attrCache[indexPath];
+    
+    
+    return [modifiedAttributes copy];
 }
 
 - (void)setRowVerticalAlignment:(UIControlContentVerticalAlignment)rowVerticalAlignment
@@ -236,6 +226,35 @@
     
     //TODO: check if we can be more specific
     [self invalidateLayout];
+}
+
+@end
+
+
+@implementation KTRow
+
++ (instancetype)rowWithLayoutAttributes:(UICollectionViewLayoutAttributes *)attributes
+{
+    KTRow *row = [self new];
+    
+    row.section = attributes.indexPath.section;
+    row->_itemsLayoutAttributes = [NSMutableArray arrayWithObject:attributes];
+    row.maxY = CGRectGetMaxY(attributes.frame);
+    row.minY = CGRectGetMinY(attributes.frame);
+    
+    return row;
+}
+
+- (void)addLayoutAttributes:(UICollectionViewLayoutAttributes *)attributes
+{
+    [self.itemsLayoutAttributes addObject:attributes];
+    self.minY = MIN(self.minY, CGRectGetMinY(attributes.frame));
+    self.maxY = MAX(self.maxY, CGRectGetMaxY(attributes.frame));
+}
+
+- (BOOL)couldContainLayoutAttributes:(UICollectionViewLayoutAttributes *)attributes
+{//x1 <= y2 && y1 <= x2
+    return self.minY <= CGRectGetMaxY(attributes.frame) && CGRectGetMinY(attributes.frame) <= self.maxY;
 }
 
 @end

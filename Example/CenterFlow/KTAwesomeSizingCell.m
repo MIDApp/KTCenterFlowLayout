@@ -27,7 +27,7 @@
         self.label.font = [UIFont systemFontOfSize:14];
         self.label.backgroundColor = [UIColor clearColor];
         self.label.textColor = [UIColor blueColor];
-        self.label.preferredMaxLayoutWidth = 100;
+        self.label.preferredMaxLayoutWidth = 0.;
         [self.contentView addSubview:self.label];
         
         NSDictionary *views = NSDictionaryOfVariableBindings(_label);
