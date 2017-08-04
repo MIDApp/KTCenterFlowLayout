@@ -8,15 +8,28 @@
 #import "KTCenterFlowLayout.h"
 
 @interface KTCenterFlowLayout ()
+
 @property (nonatomic) NSMutableDictionary *attrCache;
+
 @end
 
 @implementation KTCenterFlowLayout
+
+- (instancetype)init
+{
+    self = [super init];
+    if (self)
+    {
+        _rowVerticalAlignment = UIControlContentVerticalAlignmentCenter;
+    }
+    return self;
+}
 
 - (void)prepareLayout
 {
     // Clear the attrCache
     self.attrCache = [NSMutableDictionary new];
+    [super prepareLayout];
 }
 
 - (NSArray *)layoutAttributesForElementsInRect:(CGRect)rect
@@ -160,7 +173,15 @@
     CGFloat aggregateItemWidths = 0.f;
     for (UICollectionViewLayoutAttributes *itemAttributes in rowBuddies)
         aggregateItemWidths += CGRectGetWidth(itemAttributes.frame);
-
+    
+    
+    CGFloat maxHeigth = 0.;
+    if (self.rowVerticalAlignment != UIControlContentVerticalAlignmentCenter)
+    {
+        for (UICollectionViewLayoutAttributes *itemAttributes in rowBuddies)
+            maxHeigth = MAX(maxHeigth, CGRectGetHeight(itemAttributes.frame));
+    }
+    
     // Build an alignment rect
     // |  |x-x-x-x|  |
     CGFloat alignmentWidth = aggregateItemWidths + aggregateInteritemSpacing;
@@ -177,6 +198,25 @@
         else
             itemFrame.origin.x = CGRectGetMaxX(previousFrame) + interitemSpacing;
 
+        switch (self.rowVerticalAlignment)
+        {
+            case UIControlContentVerticalAlignmentFill:
+                itemFrame.origin.y += (itemFrame.size.height - maxHeigth)/2.0;
+                itemFrame.size.height = maxHeigth;
+                break;
+                
+            case UIControlContentVerticalAlignmentTop:
+                itemFrame.origin.y += (itemFrame.size.height - maxHeigth)/2.0;
+                break;
+                
+            case UIControlContentVerticalAlignmentBottom:
+                itemFrame.origin.y -= (itemFrame.size.height - maxHeigth)/2.0;
+                break;
+                
+            case UIControlContentVerticalAlignmentCenter:
+            default:
+                break;
+        }
         itemAttributes.frame = itemFrame;
         previousFrame = itemFrame;
 
@@ -185,6 +225,17 @@
     }
 
     return self.attrCache[indexPath];
+}
+
+- (void)setRowVerticalAlignment:(UIControlContentVerticalAlignment)rowVerticalAlignment
+{
+    if (_rowVerticalAlignment == rowVerticalAlignment)
+        return;
+    
+    _rowVerticalAlignment = rowVerticalAlignment;
+    
+    //TODO: check if we can be more specific
+    [self invalidateLayout];
 }
 
 @end

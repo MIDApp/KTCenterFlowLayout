@@ -12,4 +12,6 @@
  */
 @interface KTCenterFlowLayout : UICollectionViewFlowLayout
 
+@property (nonatomic) UIControlContentVerticalAlignment rowVerticalAlignment;
+
 @end
