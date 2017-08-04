@@ -12,6 +12,10 @@
  */
 @interface KTCenterFlowLayout : UICollectionViewFlowLayout
 
+#if TARGET_INTERFACE_BUILDER
+@property (nonatomic) IBInspectable NSUInteger rowVerticalAlignment;
+#else
 @property (nonatomic) UIControlContentVerticalAlignment rowVerticalAlignment;
+#endif
 
 @end
